@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <title>Pedidos da Pizzaria</title>
+  <style>
+    :root{font-family:Arial,Helvetica,sans-serif;color:#111827;background:#f3f4f6}
+    *{box-sizing:border-box} body{margin:0} button,input,textarea{font:inherit}
+    .wrap{max-width:760px;margin:auto;padding:16px}
+    .card{background:#fff;border-radius:18px;padding:18px;margin:12px 0;box-shadow:0 2px 12px #00000010}
+    h1{font-size:24px;margin:4px 0 6px}.muted{color:#6b7280;font-size:14px}
+    label{display:block;font-weight:700;margin:12px 0 6px}
+    input,textarea{width:100%;padding:13px;border:1px solid #d1d5db;border-radius:12px;font-size:17px}
+    textarea{min-height:125px;resize:vertical}
+    button{border:0;border-radius:12px;padding:13px 16px;min-height:48px;font-weight:700;cursor:pointer}
+    .primary{background:#111827;color:white}.secondary{background:#e5e7eb;color:#111827}
+    .success{background:#166534;color:white}.danger{background:#fee2e2;color:#991b1b}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.wide{width:100%}
+    .order{border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin:10px 0}
+    .orderhead{display:flex;justify-content:space-between;gap:10px;align-items:center}
+    .number{font-size:20px;font-weight:800}.status{font-size:12px;border-radius:999px;padding:5px 9px;background:#fef3c7}
+    .done .status{background:#dcfce7;color:#166534}.ordertext{font-size:18px;line-height:1.45;margin:10px 0}
+    .listen{font-size:19px;width:100%;background:#111827;color:white;margin:4px 0 8px}
+    .tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tab.active,.tipo.active{outline:3px solid #9ca3af}.tipo{font-size:16px}
+    .hidden{display:none!important}.msg{padding:10px 0;min-height:22px}
+    .empty{text-align:center;padding:30px;color:#6b7280}
+    .topline{display:flex;justify-content:space-between;align-items:center;gap:10px}
+    .pill{background:#e5e7eb;border-radius:999px;padding:6px 10px;font-size:12px}
+    .small{font-size:13px}.row{display:flex;gap:8px;flex-wrap:wrap}.row button{flex:1}
+    @media(max-width:480px){.wrap{padding:10px}.grid{grid-template-columns:1fr}.row button{flex-basis:100%}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>🍕 Pedidos da Pizzaria</h1>
+    <div class="muted">Sistema para Caixa e Pizzaiolo</div>
+  </div>
+
+  <div id="setup" class="card">
+    <h2>Entrar na pizzaria</h2>
+    <label for="room">Código da pizzaria</label>
+    <input id="room" autocomplete="off" placeholder="Ex.: pizzaria123">
+    <p class="muted">O caixa e o pizzaiolo devem usar o mesmo código.</p>
+    <button id="enter" class="primary wide">Entrar</button>
+    <div id="setupMsg" class="msg" aria-live="polite"></div>
+  </div>
+
+  <main id="app" class="hidden">
+    <div class="card">
+      <div class="topline">
+        <div><strong id="roomLabel"></strong><div id="connection" class="muted">Conectando...</div></div>
+        <button id="leave" class="secondary">Sair</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button id="tabCaixa" class="secondary tab active">🧾 Caixa</button>
+      <button id="tabPizza" class="secondary tab">👨‍🍳 Pizzaiolo</button>
+    </div>
+
+    <section id="caixa">
+      <div class="card">
+        <h2>Novo pedido</h2>
+        <label for="pedido">Digite o pedido</label>
+        <textarea id="pedido" placeholder="Ex.: 1 pizza: 4 queijos / frango catupiry"></textarea>
+        <label>Tipo do pedido</label>
+        <div class="grid" style="margin-top:6px">
+          <button type="button" id="tipoMesa" class="secondary tipo active">🪑 MESA</button>
+          <button type="button" id="tipoViagem" class="secondary tipo">🏍️ VIAGEM</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="send" class="primary">📤 Enviar pedido</button>
+          <button id="clear" class="secondary">Limpar</button>
+        </div>
+        <div id="sendMsg" class="msg muted" aria-live="polite"></div>
+        <div class="small muted"><b>Regra de áudio:</b> “/” será falado como “meia”.</div>
+      </div>
+      <div class="card">
+        <div class="topline"><h2>Pedidos</h2><span id="caixaCount" class="pill">0</span></div>
+        <div id="caixaList"></div>
+      </div>
+    </section>
+
+    <section id="pizza" class="hidden">
+      <div class="card">
+        <div class="topline">
+          <div><h2>Pedidos para preparar</h2><div class="muted">Toque em “Ouvir pedido”.</div></div>
+          <span id="pizzaCount" class="pill">0 novos</span>
+        </div>
+      </div>
+      <div id="pizzaList"></div>
+      <div class="card">
+        <div class="topline">
+          <h2>Histórico</h2>
+          <button id="clearHistory" class="danger">🗑️ Limpar histórico</button>
+        </div>
+        <div id="history"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+import { getDatabase, ref, push, onValue, update, remove, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
+
+/*
+  ============================================================
+  COLE A CONFIGURAÇÃO DO SEU FIREBASE AQUI
+  Firebase Console > Configurações do projeto > Seus apps > Web
+  ============================================================
+*/
+const firebaseConfig = {
+  apiKey: "AIzaSyApKrNd7pfvk45USZ2WHeiHVeDHsgWe2Os",
+  authDomain: "pizzaria-9db7a.firebaseapp.com",
+  databaseURL: "https://pizzaria-9db7a-default-rtdb.firebaseio.com",
+  projectId: "pizzaria-9db7a",
+  storageBucket: "pizzaria-9db7a.firebasestorage.app",
+  messagingSenderId: "257796688494",
+  appId: "1:257796688494:web:7ac8161c21963aedfbf47f",
+  measurementId: "G-JX076MZBNB"
+};
+
+const els = id => document.getElementById(id);
+const setup = els("setup"), appEl = els("app"), setupMsg = els("setupMsg");
+let app, auth, db, currentRoom = "", unsubscribe = null, selectedType = "mesa", currentTab = "caixa";
+let previousOrderIds = new Set();
+let firstOrdersSnapshot = true;
+let notificationPermissionAsked = false;
+
+function firebaseReady(){
+  return Object.values(firebaseConfig).every(v => v && !v.includes("COLE_AQUI"));
+}
+if(!firebaseReady()){
+  setupMsg.innerHTML = "⚠️ Primeiro configure o Firebase seguindo o guia deste projeto.";
+  els("enter").disabled = true;
+} else {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getDatabase(app);
+}
+
+async function requestNotifications(){
+  if(notificationPermissionAsked) return;
+  notificationPermissionAsked = true;
+  if("Notification" in window && Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch(e) {}
+  }
+}
+
+function playNewOrderAlert(){
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if(!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.16);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + 0.45);
+    osc.onended = () => ctx.close();
+  } catch(e) {}
+}
+
+function announceNewOrder(){
+  playNewOrderAlert();
+  if("Notification" in window && Notification.permission === "granted") {
+    try { new Notification("Novo pedido", { body: "Chegou um novo pedido para preparar." }); } catch(e) {}
+  }
+  if("speechSynthesis" in window) {
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance("Novo pedido");
+      u.lang = "pt-BR"; u.rate = 0.95; u.pitch = 1;
+      window.speechSynthesis.speak(u);
+    } catch(e) {}
+  }
+}
+
+function normalizeForSpeech(text){
+  return text.trim()
+    .replace(/\//g, " meia ")
+    .replace(/\s+/g, " ")
+    .replace(/\bcatupiry\b/gi, "catupiry")
+    .replace(/([0-9]+)\s*x\s*([0-9]+)/gi, "$1 por $2")
+    .replace(/[;]+/g, ". ");
+}
+
+function speakOrder(order){
+  if(!("speechSynthesis" in window)){
+    alert("Este celular não possui leitura de voz compatível.");
+    return;
+  }
+  window.speechSynthesis.cancel();
+  const tipo = order.type === "viagem" ? "viagem." : "mesa.";
+  const text = `Pedido número ${order.number}. ${tipo} ${normalizeForSpeech(order.text)}`;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "pt-BR";
+  u.rate = 0.88;
+  u.pitch = 1;
+  window.speechSynthesis.speak(u);
+}
+
+function esc(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function nextOrderNumber(room){
+  const counterRef = ref(db, `pizzarias/${room}/counter`);
+  const result = await runTransaction(counterRef, current => (Number(current)||0)+1);
+  return result.snapshot.val();
+}
+
+async function enterRoom(){
+  const room = els("room").value.trim().toLowerCase().replace(/[^a-z0-9_-]/g,"");
+  if(!room){ setupMsg.textContent = "Digite um código para a pizzaria."; return; }
+  if(!firebaseReady()){ return; }
+  setupMsg.textContent = "Conectando...";
+  try{
+    await signInAnonymously(auth);
+    currentRoom = room;
+    els("roomLabel").textContent = "Pizzaria: " + room;
+    setup.classList.add("hidden"); appEl.classList.remove("hidden");
+    subscribe();
+  }catch(e){
+    console.error(e);
+    setupMsg.textContent = "Não foi possível conectar. Confira a configuração do Firebase e a autenticação anônima.";
+  }
+}
+
+function subscribe(){
+  if(unsubscribe) unsubscribe();
+  const ordersRef = ref(db, `pizzarias/${currentRoom}/orders`);
+  unsubscribe = onValue(ordersRef, snap => {
+    const data = snap.val() || {};
+    const orders = Object.entries(data).map(([id,o]) => ({id,...o})).sort((a,b)=>(a.number||0)-(b.number||0));
+    const currentIds = new Set(orders.filter(o => o.status === "novo").map(o => o.id));
+    const newOrders = orders.filter(o => o.status === "novo" && !previousOrderIds.has(o.id));
+    if(!firstOrdersSnapshot && currentTab === "pizza" && newOrders.length) {
+      announceNewOrder();
+    }
+    previousOrderIds = currentIds;
+    firstOrdersSnapshot = false;
+    render(orders);
+    els("connection").textContent = "🟢 Conectado em tempo real";
+  }, err => {
+    console.error(err);
+    els("connection").textContent = "🔴 Erro de conexão";
+  });
+}
+
+function render(orders){
+  const active = orders.filter(o=>o.status==="novo");
+  els("caixaCount").textContent = orders.length + " total";
+  els("pizzaCount").textContent = active.length + " novos";
+
+  els("caixaList").innerHTML = orders.length ? orders.map(o=>`
+    <div class="order ${o.status==="done"?"done":""}">
+      <div class="orderhead"><span class="number">#${o.number}</span><span class="status">${o.status==="novo"?"Aguardando":"Concluído"}</span></div>
+      <div class="ordertext">${esc(o.text)}</div>
+      <div class="small">${o.type==="viagem"?"🏍️ VIAGEM":"🪑 MESA"}</div>
+    </div>`).join("") : '<div class="empty">Nenhum pedido ainda.</div>';
+
+  els("pizzaList").innerHTML = active.length ? active.map(o=>`
+    <div class="card order">
+      <div class="orderhead"><span class="number">Pedido #${o.number} ${o.type==="viagem"?"🏍️":"🪑"}</span><span class="status">${o.type==="viagem"?"VIAGEM":"MESA"} • NOVO</span></div>
+      <div class="ordertext">${esc(o.text)}</div>
+      <button class="listen" data-speak="${o.id}">▶️ OUVIR PEDIDO</button>
+      <div class="row">
+        <button class="secondary" data-speak="${o.id}">🔁 Ouvir novamente</button>
+        <button class="success" data-done="${o.id}">✅ Pedido concluído</button>
+      </div>
+    </div>`).join("") : '<div class="card empty">🎉 Nenhum pedido aguardando preparo.</div>';
+
+  const done = orders.filter(o=>o.status==="done");
+  els("history").innerHTML = done.length ? done.map(o=>`
+    <div class="order done"><b>#${o.number}</b> — ${esc(o.text)}</div>`).join("") :
+    '<div class="empty">Nenhum pedido concluído.</div>';
+}
+
+els("enter").addEventListener("click", enterRoom);
+els("room").addEventListener("keydown", e=>{if(e.key==="Enter") enterRoom();});
+
+els("tipoMesa").addEventListener("click",()=>{selectedType="mesa";els("tipoMesa").classList.add("active");els("tipoViagem").classList.remove("active");});
+els("tipoViagem").addEventListener("click",()=>{selectedType="viagem";els("tipoViagem").classList.add("active");els("tipoMesa").classList.remove("active");});
+
+els("send").addEventListener("click", async ()=>{
+  const text = els("pedido").value.trim();
+  if(!text){els("sendMsg").textContent="Digite o pedido."; return;}
+  try{
+    els("send").disabled=true;
+    const number = await nextOrderNumber(currentRoom);
+    const ordersRef = ref(db, `pizzarias/${currentRoom}/orders`);
+    await push(ordersRef,{number,text,type:selectedType,status:"novo",createdAt:serverTimestamp()});
+    els("pedido").value="";
+    els("sendMsg").textContent=`Pedido #${number} enviado para a cozinha.`;
+  }catch(e){
+    console.error(e); els("sendMsg").textContent="Erro ao enviar o pedido.";
+  }finally{els("send").disabled=false;}
+});
+
+els("clear").addEventListener("click",()=>{els("pedido").value="";els("sendMsg").textContent="";});
+
+els("clearHistory").addEventListener("click", async ()=>{
+  if(!currentRoom) return;
+  const all = window.__orders || [];
+  const done = all.filter(o => o.status === "done");
+  const active = all.filter(o => o.status === "novo");
+  if(!done.length){ alert("Não há pedidos concluídos no histórico."); return; }
+  if(active.length){
+    alert("Para limpar o histórico e zerar a numeração, primeiro conclua os pedidos que ainda estão aguardando preparo.");
+    return;
+  }
+  const ok = confirm(`Apagar ${done.length} pedido(s) do histórico e zerar a numeração? Esta ação não pode ser desfeita.`);
+  if(!ok) return;
+  try {
+    await Promise.all(done.map(o => remove(ref(db, `pizzarias/${currentRoom}/orders/${o.id}`))));
+    await update(ref(db, `pizzarias/${currentRoom}`), { counter: 0 });
+  } catch(err) {
+    console.error(err);
+    alert("Não foi possível limpar o histórico e zerar a numeração.");
+  }
+});
+
+document.addEventListener("click", async e=>{
+  const speakBtn=e.target.closest("[data-speak]");
+  if(speakBtn){
+    const id=speakBtn.dataset.speak;
+    const snapData = window.__orders || [];
+    const order=snapData.find(o=>o.id===id);
+    if(order) speakOrder(order);
+  }
+  const done=e.target.closest("[data-done]");
+  if(done){
+    const id = done.dataset.done;
+    const orders = (window.__orders || []).filter(o => o.status === "novo").sort((a,b)=>(a.number||0)-(b.number||0));
+    const currentIndex = orders.findIndex(o => o.id === id);
+    const nextOrder = currentIndex >= 0 ? orders[currentIndex + 1] : orders[0];
+    try{
+      await update(ref(db,`pizzarias/${currentRoom}/orders/${id}`),{status:"done"});
+      if(nextOrder){
+        setTimeout(() => speakOrder(nextOrder), 250);
+      }
+    }
+    catch(err){alert("Não foi possível concluir o pedido.");}
+  }
+});
+
+function tab(name){
+  currentTab = name;
+  if(name === "pizza") requestNotifications();
+  const caixa=name==="caixa";
+  els("caixa").classList.toggle("hidden",!caixa);
+  els("pizza").classList.toggle("hidden",caixa);
+  els("tabCaixa").classList.toggle("active",caixa);
+  els("tabPizza").classList.toggle("active",!caixa);
+}
+els("tabCaixa").addEventListener("click",()=>tab("caixa"));
+els("tabPizza").addEventListener("click",()=>tab("pizza"));
+els("leave").addEventListener("click",()=>{
+  if(unsubscribe)unsubscribe();
+  currentRoom=""; previousOrderIds = new Set(); firstOrdersSnapshot = true; currentTab = "caixa";
+  appEl.classList.add("hidden"); setup.classList.remove("hidden");
+});
+
+const originalRender = render;
+render = function(orders){ window.__orders=orders; originalRender(orders); };
+</script>
+</body>
+</html>
